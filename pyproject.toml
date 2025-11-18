@@ -1,0 +1,28 @@
+[project]
+name = "priceframe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Caymaar", email = "119420644+Caymaar@users.noreply.github.com" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "ipykernel>=6.31.0",
+    "pandas>=2.3.3",
+    "polars>=1.35.2",
+    "pyarrow>=21.0.0",
+    "xbbg>=0.7.7",
+]
+
+[project.scripts]
+priceframe = "priceframe:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
