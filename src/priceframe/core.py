@@ -1075,9 +1075,6 @@ class PriceFrame:
         return PriceFrame.from_close_matrix(
             df,
             interval=None,
-            ts_is_close=True,      # index daté au close
-            impute_ohlc=True,
-            volume_value=0.0,
             source="naive_portfolio",
         )
 
@@ -1171,7 +1168,6 @@ class PriceFrame:
         close_df: pd.DataFrame,
         *,
         interval: Union[str, None] = None,
-        ts_is_close: bool = True,
         tz: str = "UTC",
         round_unit: Union[str, None] = "ms",
         drop_all_na_rows: bool = True,
