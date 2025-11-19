@@ -1,6 +1,6 @@
 [project]
 name = "priceframe"
-version = "0.1.0"
+version = "0.1.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -17,6 +17,12 @@ dependencies = [
 
 [project.scripts]
 priceframe = "priceframe:main"
+
+[project.optional-dependencies]
+crypto = [
+    "ccxt>=4.5.20",
+    "requests>=2.32.5",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,121 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+pip-wheel-metadata/
+
+# Virtual environments
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Type checkers / caches
+.mypy_cache/
+.pyre/
+__pypackages__/
+
+# IPython / Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# Logs / local data
+*.log
+logs/
+*.sqlite3
+*.db
+
+# Sensitive files
+.env.* 
+secrets.toml
+credentials/
+```# filepath: /Users/julesmourgues/Documents/tool-box/priceframe/.gitignore
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+pip-wheel-metadata/
+
+# Virtual environments
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Type checkers / caches
+.mypy_cache/
+.pyre/
+__pypackages__/
+
+# IPython / Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# Logs / local data
+*.log
+logs/
+*.sqlite3
+*.db
+
+# Sensitive files
+.env.* 
+secrets.toml
+credentials/
