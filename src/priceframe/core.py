@@ -6,9 +6,9 @@ import re
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import pyarrow
 import pyarrow.compute as pc
 import polars as pl
+from datetime import datetime
 
 from .features import FeatureSpec, build_feature_fn
 
@@ -353,28 +353,49 @@ class PriceFrame:
     # Constructeurs
     # -----------------------------------------------------------------
     @classmethod
-    def from_pandas(cls, df: pd.DataFrame) -> 'PriceFrame':
+    def from_pandas(cls, df: pd.DataFrame, 
+                    interval: str = None, 
+                    impute_ohlcv: bool = False,
+                    source: Union[str, None] = None,
+                    quote_ccy: Union[str, None] = None
+                    ) -> 'PriceFrame':
         """
         Constructeur à partir d'un DataFrame long (symbol / interval / ts / OHLCV).
         Normalise les noms, types, tz, tri, dedup.
         """
         rename = {
-            "open_time": "ts",
-            "Open time": "ts",
-            "number_of_trades": "trades",
+            "date": "ts",
+            "Date": "ts",
+            "DATE": "ts",
         }
         df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
 
         df = df.copy()
         df.columns = [c.lower() for c in df.columns]
 
-        missing = [c for c in CANON_COLS if c not in df.columns]
-        if missing:
-            raise ValueError(f"Colonnes manquantes: {missing}")
+        # Ajouter colonnes manquantes
+        for c in [c for c in CANON_COLS if c not in df.columns]:
+            if c in ["open", "high", "low", "close", "volume"] and impute_ohlcv:
+                if c == "volume":
+                    df[c] = 0.0
+                else:
+                    df[c] = df["close"].copy()
+            elif c in ["open", "high", "low", "close", "volume"] and not impute_ohlcv:
+                df[c] = np.nan
 
         # ts -> tz-aware UTC
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
 
+        # inférer interval si absent
+        if interval is None and "interval" not in df.columns:
+            # créer un DatetimeIndex sans doublons
+            idx = pd.DatetimeIndex(sorted(df["ts"].unique()))
+            _, interval_str = infer_interval_from_index(idx)
+            df["interval"] = interval_str
+        elif interval is not None and "interval" not in df.columns:
+            _, interval_str = interval_to_offset(interval)
+            df["interval"] = interval_str
+        
         # numériques OHLCV
         for c in ["open", "high", "low", "close", "volume"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -384,6 +405,10 @@ class PriceFrame:
             df.sort_values(["symbol", "interval", "ts"])
             .drop_duplicates(subset=["symbol", "interval", "ts"])
         )
+        if source is not None:
+            df["source"] = source
+        if quote_ccy is not None:
+            df["quote_ccy"] = quote_ccy
 
         t = pa.Table.from_pandas(df, preserve_index=False)
         t = _cast_to_canon(t)
@@ -422,11 +447,45 @@ class PriceFrame:
     # --- IO externes : à implémenter dans des modules dédiés (bloomberg, binance, ...) ---
 
     @classmethod
-    def from_bloomberg(cls, *args, **kwargs) -> 'PriceFrame':
+    def from_bloomberg(cls, 
+                       tickers: Union[str, list[str]],
+                       start_date: Union[datetime, str] = None,
+                       end_date: Union[datetime, str] = None,
+                       interval: str = "1d",
+                       type_: str = "ohlcv", # 'close' | 'ohlcv' | 'ohlc'
+                       currency: str = None, 
+                       **kwargs) -> 'PriceFrame':
         """
         Stub : à implémenter dans un module séparé (ex: priceframe.io.bloomberg).
         """
-        raise NotImplementedError("Utiliser un module IO dédié (ex: priceframe.io.bloomberg).")
+        from .io.bloomberg import _bloomberg_request
+        return _bloomberg_request(
+            tickers=tickers,
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval,
+            type_=type_,
+            currency=currency,
+            **kwargs
+        )
+    
+    @classmethod
+    def from_dblib(cls,
+                   ids: Union[str, list[str]],
+                   start_date: Union[datetime, str] = None,
+                   end_date: Union[datetime, str] = None,
+                   currency: str = None
+                   ) -> 'PriceFrame':
+        """
+        Stub : à implémenter dans un module séparé (ex: priceframe.io.dblib).
+        """        
+        from .io.dblib import _dblib_request
+        return _dblib_request(
+            ids=ids,
+            start_date=start_date,
+            end_date=end_date,
+            currency=currency
+        )
 
     @classmethod
     def from_binance(cls, *args, **kwargs) -> 'PriceFrame':
@@ -1015,8 +1074,8 @@ class PriceFrame:
 
         return PriceFrame.from_close_matrix(
             df,
-            interval=None,          # infère la fréquence
-            ts_is_close=False,      # index daté au close
+            interval=None,
+            ts_is_close=True,      # index daté au close
             impute_ohlc=True,
             volume_value=0.0,
             source="naive_portfolio",
@@ -1117,8 +1176,6 @@ class PriceFrame:
         round_unit: Union[str, None] = "ms",
         drop_all_na_rows: bool = True,
         drop_all_na_cols: bool = True,
-        impute_ohlc: bool = True,
-        volume_value: Union[float, None] = 0.0,
         source: Union[str, None] = None,
         quote_ccy: Union[str, None] = None,
     ) -> 'PriceFrame':
@@ -1160,14 +1217,9 @@ class PriceFrame:
 
         # 2) Déterminer offset / interval
         if interval is None:
-            off, interval_str = infer_interval_from_index(mat.index)
+            _, interval_str = infer_interval_from_index(mat.index)
         else:
-            off, interval_str = interval_to_offset(interval)
-
-        # 3) Si l'index représente le close, shift vers open
-        if ts_is_close:
-            shift = _open_shift_from_offset(off)
-            mat.index = mat.index - shift
+            _, interval_str = interval_to_offset(interval)
 
         # --- 4) Passage en long ---
         # stack (ts, symbol) -> close
@@ -1183,22 +1235,8 @@ class PriceFrame:
             .reset_index(name="close")
         )
 
-        long["interval"] = interval_str
-
-        if source is not None:
-            long["source"] = source
-        if quote_ccy is not None:
-            long["quote_ccy"] = quote_ccy
-
-        if impute_ohlc:
-            long["open"] = long["close"]
-            long["high"] = long["close"]
-            long["low"] = long["close"]
-            if volume_value is not None:
-                long["volume"] = volume_value
-
         long["ts"] = pd.to_datetime(long["ts"], utc=True)
         if round_unit:
             long["ts"] = long["ts"].dt.round(round_unit)
 
-        return cls.from_pandas(long)
+        return cls.from_pandas(long, interval=interval_str, source=source, quote_ccy=quote_ccy)
