@@ -22,7 +22,7 @@ BLOOMBERG_DATE_FORMAT = "%Y-%m-%d"
 def _bloomberg_request(tickers: Union[str, list[str]],
                        start_date: Union[datetime, str] = None,
                        end_date: Union[datetime, str] = None,
-                       interval: str = "1d",
+                       interval: str = None,
                        type_: str = "ohlcv", # 'close' | 'ohlcv' | 'ohlc'
                        currency: str = None, 
                        **kwargs) -> PriceFrame:
@@ -71,7 +71,7 @@ def _bloomberg_request(tickers: Union[str, list[str]],
         if col in MAPPING_FIELDS:
             df = df.rename(columns={col: MAPPING_FIELDS[col]})
 
-    if interval != "1d" or interval is not None:
+    if interval is not None and interval != "1d":
         raise NotImplementedError("Seul l'intervalle '1d' est supporté pour le moment.")
 
     if interval is not None:

@@ -451,7 +451,7 @@ class PriceFrame:
                        tickers: Union[str, list[str]],
                        start_date: Union[datetime, str] = None,
                        end_date: Union[datetime, str] = None,
-                       interval: str = "1d",
+                       interval: str = None,
                        type_: str = "ohlcv", # 'close' | 'ohlcv' | 'ohlc'
                        currency: str = None, 
                        **kwargs) -> 'PriceFrame':
@@ -493,6 +493,13 @@ class PriceFrame:
         Stub : à implémenter dans un module séparé (ex: priceframe.io.binance).
         """
         raise NotImplementedError("Utiliser un module IO dédié (ex: priceframe.io.binance).")
+    
+    @classmethod
+    def from_excel(cls, filepath: str, **kwargs) -> 'PriceFrame':
+        """
+        Chargement depuis un fichier Excel.
+        """
+        return PriceFrame.from_pandas(pd.read_excel(filepath, **kwargs))
 
     # -----------------------------------------------------------------
     # Conversions
@@ -567,25 +574,15 @@ class PriceFrame:
             df = df.set_index(["symbol", "ts"]).sort_index()
 
         return df
-    
-    # def to_pandas(
-    #     self,
-    #     index: Optional[Literal["ts", "multi"]] = None,
-    #     *,
-    #     use_arrow_dtypes: bool = False,
-    # ) -> pd.DataFrame:
-    #     if use_arrow_dtypes:
-    #         df = self.table.to_pandas(types_mapper=pd.ArrowDtype)
-    #     else:
-    #         df = self.table.to_pandas()
 
-    #     if index == "ts":
-    #         df = df.set_index("ts").sort_index()
-    #         df.index = pd.to_datetime(df.index)
-    #     elif index == "multi":
-    #         df = df.set_index(["symbol", "ts"]).sort_index()
 
-    #     return df
+    def to_excel(self, filepath: str, index: bool = False, **kwargs) -> None:
+        """
+        Sauvegarde dans un fichier Excel.
+        """
+        df = self.to_pandas()
+        df['ts'] = pd.to_datetime(df['ts']).dt.date
+        df.to_excel(filepath, index=index, **kwargs)
 
     # -----------------------------------------------------------------
     # Invariants & utilitaires de base
