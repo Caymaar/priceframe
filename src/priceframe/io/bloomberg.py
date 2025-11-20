@@ -77,6 +77,6 @@ def _bloomberg_request(tickers: Union[str, list[str]],
     if interval is not None:
         df["interval"] = interval
 
-    df = df[["ts", "symbol", "interval"] + list(c for c in MAPPING_FIELDS.values() if c in df.columns)]
+    df = df[["ts", "symbol"] + ([ "interval"] if "interval" in df.columns else []) + list(c for c in MAPPING_FIELDS.values() if c in df.columns)]
 
     return PriceFrame.from_pandas(df, impute_ohlcv=False, interval=interval, source="bloomberg")
