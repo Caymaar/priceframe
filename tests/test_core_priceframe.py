@@ -7,7 +7,7 @@ from priceframe.core import PriceFrame
 
 def make_basic_df():
     """
-    Petit DataFrame OHLCV daily pour 2 symboles.
+    Small daily OHLCV DataFrame for 2 symbols.
     """
     idx = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
     data = []
@@ -39,20 +39,20 @@ def test_from_pandas_round_trip():
 
     out = pf.to_pandas()
 
-    # colonnes minimales présentes
+    # Minimal columns present
     for col in ["symbol", "interval", "ts", "open", "high", "low", "close", "volume"]:
         assert col in out.columns
 
-    # ts en datetime64[ns, UTC]
+    # ts in datetime64[ns, UTC]
     print(str(out["ts"].dtype))
     assert str(out["ts"].dtype) == "datetime64[ns, UTC]"
 
-    # pas de duplicates sur (symbol, interval, ts)
+    # No duplicates on (symbol, interval, ts)
     assert (
         out.duplicated(subset=["symbol", "interval", "ts"]).sum() == 0
     )
 
-    # valeurs de close conservées
+    # Close values preserved
     pd.testing.assert_series_equal(
         df.sort_values(["symbol", "interval", "ts"])["close"].reset_index(drop=True),
         out.sort_values(["symbol", "interval", "ts"])["close"].reset_index(drop=True),
@@ -87,7 +87,7 @@ def test_close_matrix_basic_pandas():
 
 
 def test_resample_daily_to_weekly():
-    # 5 jours d'un seul symbole
+    # 5 days of a single symbol
     idx = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
     data = []
     for i, ts in enumerate(idx):
@@ -111,30 +111,30 @@ def test_resample_daily_to_weekly():
     df = pd.DataFrame(data)
     pf = PriceFrame.from_pandas(df)
 
-    # resample hebdo
+    # Resample to weekly
     pf_w = pf.resample("1w")
     out = pf_w.to_pandas().sort_values("ts")
 
-    # Une seule barre hebdo
+    # Single weekly bar
     assert len(out) == 1
     row = out.iloc[0]
 
-    # open = open du premier jour
+    # open = first day's open
     assert np.isclose(row["open"], df.iloc[0]["open"])
-    # close = close du dernier
+    # close = last day's close
     assert np.isclose(row["close"], df.iloc[-1]["close"])
     # high = max high
     assert np.isclose(row["high"], df["high"].max())
     # low = min low
     assert np.isclose(row["low"], df["low"].min())
-    # volume = somme
+    # volume = sum
     assert np.isclose(row["volume"], df["volume"].sum())
-    # interval mis à jour
+    # interval updated
     assert row["interval"] == "1w"
 
 
 def test_naive_portfolio_series():
-    # 3 jours, 2 symboles
+    # 3 days, 2 symbols
     idx = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
     data = []
     # AAA: 100, 101, 102
@@ -175,12 +175,12 @@ def test_naive_portfolio_series():
 
     pf_idx = pf.naive_portfolio(symbols, weights, base=base, as_="series")
 
-    # index longueur = 3
+    # index length = 3
     assert len(pf_idx) == 3
-    # première valeur = base
+    # first value = base
     assert np.isclose(pf_idx.iloc[0], base)
 
-    # calcul manuel
+    # Manual calculation
     cm = pf.close_matrix(symbols=symbols, engine="pandas")
     R = cm.pct_change().fillna(0.0)
     r_p = (R * np.array(weights)).sum(axis=1)
@@ -236,13 +236,13 @@ def test_add_merge_and_dedup():
     pf_comb = pf1.add(pf2)
     out = pf_comb.to_pandas().sort_values("ts")
 
-    # Doit contenir 4 dates (1x 01, 1x 02, 1x 03, 1x 04)
+    # Should contain 4 dates (1x 01, 1x 02, 1x 03, 1x 04)
     assert len(out["ts"].unique()) == 4
 
-    # La première occurrence (pf1) doit être gardée pour 02 & 03
+    # First occurrence (pf1) should be kept for 02 & 03
     sub = out[out["ts"] == pd.Timestamp("2024-01-02", tz="UTC")]
     assert len(sub) == 1
-    # close vaut 1.5 (pf1), pas 15 (pf2)
+    # close is 1.5 (pf1), not 15 (pf2)
     assert np.isclose(sub["close"].iloc[0], 1.5)
 
 
@@ -283,18 +283,18 @@ def test_from_close_matrix_basic():
         index=idx,
     )
 
-    # ts_is_close=False pour garder l'index = ts
-    pf = PriceFrame.from_close_matrix(close_df, ts_is_close=False)
+    # ts_is_close=False to keep index = ts
+    pf = PriceFrame.from_close_matrix(close_df)
 
     out = pf.to_pandas()
 
-    # colonnes OK
+    # Columns OK
     assert set(["symbol", "interval", "ts", "close"]).issubset(out.columns)
 
-    # interval inféré = 1d
+    # Inferred interval = 1d
     assert out["interval"].unique().tolist() == ["1d"]
 
-    # 3 dates * 2 symboles
+    # 3 dates * 2 symbols
     assert len(out) == 6
 
     # AAA close
@@ -304,5 +304,5 @@ def test_from_close_matrix_basic():
         [100.0, 101.0, 102.0],
     )
 
-    # ts correspond à l'index d'origine
+    # ts corresponds to original index
     assert set(aaa["ts"]) == set(idx)

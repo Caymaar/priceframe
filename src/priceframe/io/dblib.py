@@ -6,7 +6,7 @@ try:
     import DBLib as db
     from DBLib import __regions__
 except ImportError:
-    raise ImportError("DBLib est requis pour utiliser le module priceframe.io.dblib. vous pouvez l'installer via pip install priceframe[themateam] (Réservé aux utilisateurs de Themateam).")
+    raise ImportError("DBLib is required to use the priceframe.io.dblib module. You can install it via: pip install priceframe[themateam] (Reserved for Themateam users).")
 
 ID_TO_REGION_DICT = {}
 for region in __regions__:
@@ -22,7 +22,16 @@ def _dblib_request(ids: Union[str, list[str]],
                    currency: str = None
                    ) -> PriceFrame:
     """
-    Effectue une requête via DBLib et retourne un PriceFrame.
+    Execute a request via DBLib and return a PriceFrame.
+    
+    Args:
+        ids: Single ID or list of IDs.
+        start_date: Start date for data range.
+        end_date: End date for data range.
+        currency: Currency for data conversion.
+        
+    Returns:
+        PriceFrame: New PriceFrame with DBLib data.
     """
 
     if isinstance(ids, str):

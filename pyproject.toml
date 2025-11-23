@@ -1,7 +1,7 @@
 [project]
 name = "priceframe"
 version = "0.1.4"
-description = "Add your description here"
+description = "Provides a canonical, high-performance way to store, manipulate, and analyze financial price data (OHLCV, OHLC or Close only). It combines the speed of PyArrow and Polars with the familiarity of pandas, offering a flexible feature system for technical indicators and quantitative analysis."
 readme = "README.md"
 authors = [
     { name = "Caymaar", email = "119420644+Caymaar@users.noreply.github.com" }
@@ -19,20 +19,16 @@ priceframe = "priceframe:main"
 [project.optional-dependencies]
 crypto = [
     "ccxt>=4.5.20",
+    "duckdb>=1.4.2",
     "requests>=2.32.5",
 ]
 bloomberg = [
     "blpapi>=3.25.10.1",
     "xbbg>=0.7.7",
 ]
-themateam = [
-    "dblib>=0.1.1",
-]
-
 
 [tool.uv.sources]
 blpapi = { index = "bloomberg" }
-DBLib = { git = "https://github.com/themateam-lib/dblib.git" }
 
 [[tool.uv.index]]
 name = "bloomberg"

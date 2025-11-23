@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -10,19 +8,19 @@ import polars as pl
 # Types & Spec
 # -------------------------------------------------------------------
 
-# Fonction de feature : prend un DataFrame Polars, renvoie un DataFrame Polars
+# Feature function: takes a Polars DataFrame, returns a Polars DataFrame
 FeatureFn = Callable[[pl.DataFrame], pl.DataFrame]
 
-# Builder d'une feature : logique principale utilisée dans le registry
+# Feature builder: main logic used in the registry
 FeatureBuilder = Callable[[pl.DataFrame, "FeatureSpec"], pl.DataFrame]
 
 
 @dataclass
 class FeatureSpec:
     """
-    Spécification déclarative d'une feature.
+    Declarative feature specification.
 
-    Exemple simple (MA 20 sur le close) :
+    Simple example (MA 20 on close):
         FeatureSpec(
             name="f_ma_20",
             func="ma",
@@ -30,7 +28,7 @@ class FeatureSpec:
             params={"window": 20},
         )
 
-    Exemple multi-colonnes (ATR) :
+    Multi-column example (ATR):
         FeatureSpec(
             name="f_atr_14",
             func="atr",
@@ -39,30 +37,31 @@ class FeatureSpec:
         )
     """
 
-    # Nom de la colonne de sortie dans le DataFrame
+    # Output column name in the DataFrame
     name: str
 
-    # Nom logique de la feature (clé dans FEATURE_REGISTRY)
+    # Logical feature name (key in FEATURE_REGISTRY)
     func: str
 
-    # Cas simple : une colonne d'entrée unique
+    # Simple case: single input column
     input_col: Optional[str] = None
 
-    # Cas multi-colonnes : mapping logique -> nom de colonne réelle
-    # Ex: {"high": "high_bid", "low": "low_bid", "close": "mid_close"}
+    # Multi-column case: logical -> actual column name mapping
+    # E.g., {"high": "high_bid", "low": "low_bid", "close": "mid_close"}
     input_cols: Dict[str, str] = field(default_factory=dict)
 
-    # Paramètres libres pour la feature
+    # Free parameters for the feature
     params: Dict[str, Any] = field(default_factory=dict)
 
-    # Helper pratique pour récupérer un nom de colonne
+    # Convenient helper to retrieve a column name
     def col(self, key: str, default: Optional[str] = None) -> str:
         """
-        Récupère le nom de colonne pour une clé logique.
-        Ordre de priorité :
+        Retrieve the column name for a logical key.
+        
+        Priority order:
           - input_cols[key]
-          - input_col (si défini)
-          - default (si fourni)
+          - input_col (if defined)
+          - default (if provided)
         """
         if key in self.input_cols:
             return self.input_cols[key]
@@ -87,29 +86,33 @@ def register_feature(
     overwrite: bool = False,
 ) -> None:
     """
-    Enregistre une feature dans le registry global.
-    - name: identifiant logique (ex. "ma", "ret", "atr", ...)
-    - builder: fonction pl.DataFrame x FeatureSpec -> pl.DataFrame
+    Register a feature in the global registry.
+    
+    Args:
+        name: Logical identifier (e.g., "ma", "ret", "atr", ...).
+        builder: Function pl.DataFrame x FeatureSpec -> pl.DataFrame.
+        overwrite: Allow overwriting existing feature.
     """
     if not overwrite and name in FEATURE_REGISTRY:
-        raise ValueError(f"Feature '{name}' déjà enregistrée.")
+        raise ValueError(f"Feature '{name}' already registered.")
     FEATURE_REGISTRY[name] = builder
 
 def feature(name: str, *, overwrite: bool = False):
     """
-    Décorateur pour enregistrer une feature dans le registry global.
+    Decorator to register a feature in the global registry.
     
     Usage:
         @feature("ma")
         def _feat_ma(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
             # implementation...
     
-    - name: identifiant logique (ex. "ma", "ret", "atr", ...)
-    - overwrite: permet d'écraser une feature existante
+    Args:
+        name: Logical identifier (e.g., "ma", "ret", "atr", ...).
+        overwrite: Allow overwriting existing feature.
     """
     def decorator(builder: FeatureBuilder) -> FeatureBuilder:
         if not overwrite and name in FEATURE_REGISTRY:
-            raise ValueError(f"Feature '{name}' déjà enregistrée.")
+            raise ValueError(f"Feature '{name}' already registered.")
         FEATURE_REGISTRY[name] = builder
         return builder
     return decorator
@@ -117,11 +120,18 @@ def feature(name: str, *, overwrite: bool = False):
 
 def build_feature_fn(spec: FeatureSpec) -> FeatureFn:
     """
-    Transforme un FeatureSpec en fonction pl.DataFrame -> pl.DataFrame
-    en allant chercher le builder dans FEATURE_REGISTRY.
+    Transform a FeatureSpec into a pl.DataFrame -> pl.DataFrame function.
+    
+    Retrieves the builder from FEATURE_REGISTRY.
+    
+    Args:
+        spec: FeatureSpec instance.
+        
+    Returns:
+        FeatureFn: Feature function.
     """
     if spec.func not in FEATURE_REGISTRY:
-        raise KeyError(f"Feature func '{spec.func}' non enregistrée.")
+        raise KeyError(f"Feature func '{spec.func}' not registered.")
 
     builder = FEATURE_REGISTRY[spec.func]
 
@@ -132,12 +142,17 @@ def build_feature_fn(spec: FeatureSpec) -> FeatureFn:
 
 
 def list_registered_features() -> List[str]:
-    """Retourne la liste des noms de features enregistrées."""
+    """
+    Return the list of registered feature names.
+    
+    Returns:
+        List[str]: Sorted list of feature names.
+    """
     return sorted(FEATURE_REGISTRY.keys())
 
 
 # -------------------------------------------------------------------
-# Implémentations de features "de base"
+# Base Feature Implementations
 # -------------------------------------------------------------------
 
 # ---------- Returns ----------
@@ -145,10 +160,10 @@ def list_registered_features() -> List[str]:
 @feature("ret")
 def _feat_ret(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Return simple : (price_t / price_{t-h} - 1) par symbol.
+    Simple return: (price_t / price_{t-h} - 1) by symbol.
 
-    params:
-        horizon: int (>=1), horizon de retour (par défaut 1).
+    Params:
+        horizon: int (>=1), return horizon (default: 1).
     """
     h = int(spec.params.get("horizon", 1))
     col = spec.col("price", default="close")
@@ -162,10 +177,10 @@ def _feat_ret(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
 @feature("logret")
 def _feat_logret(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Log-return : log(price_t) - log(price_{t-h}) par symbol.
+    Log-return: log(price_t) - log(price_{t-h}) by symbol.
 
-    params:
-        horizon: int (>=1), horizon de retour (par défaut 1).
+    Params:
+        horizon: int (>=1), return horizon (default: 1).
     """
     h = int(spec.params.get("horizon", 1))
     col = spec.col("price", default="close")
@@ -177,18 +192,18 @@ def _feat_logret(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     )
 
 
-# ---------- Moving averages ----------
+# ---------- Moving Averages ----------
 
 @feature("ma")
 def _feat_ma(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Simple Moving Average (SMA) sur une colonne, par symbol.
+    Simple Moving Average (SMA) on a column, by symbol.
 
-    params:
-        window: int, taille de fenêtre (obligatoire).
+    Params:
+        window: int, window size (required).
     """
     if "window" not in spec.params:
-        raise ValueError(f"Feature '{spec.name}' (ma) nécessite params['window'].")
+        raise ValueError(f"Feature '{spec.name}' (ma) requires params['window'].")
 
     w = int(spec.params["window"])
     col = spec.col("price", default="close")
@@ -203,10 +218,10 @@ def _feat_ma(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
 @feature("ema")
 def _feat_ema(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Exponential Moving Average (EMA) sur une colonne, par symbol.
+    Exponential Moving Average (EMA) on a column, by symbol.
 
-    params:
-        alpha: float, OU
+    Params:
+        alpha: float, OR
         span: float -> alpha = 2 / (span + 1)
     """
     col = spec.col("price", default="close")
@@ -216,7 +231,7 @@ def _feat_ema(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     if alpha is None:
         if span is None:
             raise ValueError(
-                f"Feature '{spec.name}' (ema) nécessite params['alpha'] ou params['span']."
+                f"Feature '{spec.name}' (ema) requires params['alpha'] or params['span']."
             )
         alpha = 2.0 / (float(span) + 1.0)
 
@@ -228,23 +243,23 @@ def _feat_ema(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     )
 
 
-# ---------- Rolling volatility ----------
+# ---------- Rolling Volatility ----------
 
 @feature("rolling_vol")
 def _feat_rolling_vol(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Volatilité rolling (écart-type) d'une série (souvent des returns).
+    Rolling volatility (standard deviation) of a series (often returns).
 
-    params:
-        window: int, taille de fenêtre (obligatoire).
+    Params:
+        window: int, window size (required).
     """
     if "window" not in spec.params:
         raise ValueError(
-            f"Feature '{spec.name}' (rolling_vol) nécessite params['window']."
+            f"Feature '{spec.name}' (rolling_vol) requires params['window']."
         )
 
     w = int(spec.params["window"])
-    col = spec.col("value", default="f_ret_1")  # par ex. ret_1
+    col = spec.col("value", default="f_ret_1")  # e.g., ret_1
 
     return df.with_columns(
         pl.col(col)
@@ -254,15 +269,15 @@ def _feat_rolling_vol(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     )
 
 
-# ---------- Cross-sectional (par date) ----------
+# ---------- Cross-Sectional (by Date) ----------
 
 @feature("cs_rank")
 def _feat_cs_rank(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Rank cross-sectionnel d'une colonne à chaque timestamp.
+    Cross-sectional rank of a column at each timestamp.
 
-    params:
-        method: méthode de rank Polars ("dense","average","ordinal", etc.).
+    Params:
+        method: Polars rank method ("dense", "average", "ordinal", etc.).
     """
     col = spec.col("value", default="f_ret_1")
     method = spec.params.get("method", "dense")
@@ -277,8 +292,9 @@ def _feat_cs_rank(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
 @feature("cs_zscore")
 def _feat_cs_zscore(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Z-score cross-sectionnel d'une colonne à chaque timestamp :
-    (x - mean_ts) / std_ts
+    Cross-sectional Z-score of a column at each timestamp.
+    
+    Formula: (x - mean_ts) / std_ts
     """
     col = spec.col("value", default="f_ret_1")
 
@@ -290,23 +306,23 @@ def _feat_cs_zscore(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     )
 
 
-# ---------- ATR : Average True Range ----------
+# ---------- ATR: Average True Range ----------
 
 @feature("atr")
 def _feat_atr(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Average True Range (ATR) par symbol.
+    Average True Range (ATR) by symbol.
 
-    True Range (TR_t) :
+    True Range (TR_t):
         max(
             high_t - low_t,
             |high_t - close_{t-1}|,
             |low_t - close_{t-1}|
         )
 
-    params:
-        window: int, longueur ATR (ex. 14)
-        method: "sma" ou "wilder" (par défaut "sma")
+    Params:
+        window: int, ATR length (e.g., 14).
+        method: "sma" or "wilder" (default: "sma").
     """
     high_col = spec.col("high", default="high")
     low_col = spec.col("low", default="low")
@@ -325,7 +341,7 @@ def _feat_atr(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
         (low - close_prev).abs(),
     )
 
-    # True Range par symbol
+    # True Range by symbol
     df = df.with_columns(
         tr_expr.over("symbol").alias("_tr_tmp")
     )
@@ -339,7 +355,7 @@ def _feat_atr(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
         )
 
     elif method == "wilder":
-        # Approximation Wilder via EWMA alpha=1/window
+        # Wilder approximation via EWMA alpha=1/window
         alpha = 1.0 / float(window)
         df = df.with_columns(
             pl.col("_tr_tmp")
@@ -356,16 +372,16 @@ def _feat_atr(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     return df
 
 
-# ---------- RSI : Relative Strength Index ----------
+# ---------- RSI: Relative Strength Index ----------
 
 @feature("rsi")
 def _feat_rsi(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    RSI (Relative Strength Index) sur le 'close' (par défaut), par symbol.
+    RSI (Relative Strength Index) on 'close' (default), by symbol.
 
-    params:
-        window: int, période (ex. 14)
-        method: "sma" ou "wilder" (par défaut "wilder")
+    Params:
+        window: int, period (e.g., 14).
+        method: "sma" or "wilder" (default: "wilder").
     """
     close_col = spec.col("close", default="close")
     window = int(spec.params.get("window", 14))
@@ -424,16 +440,16 @@ def _feat_rsi(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
 @feature("bollinger")
 def _feat_bollinger(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    Bollinger Bands sur une série (par défaut close).
+    Bollinger Bands on a series (default: close).
 
-    params:
-        window : int, taille de fenêtre (ex. 20)
-        n_std  : float, multiplicateur d'écart-type (ex. 2.0)
-        band   : "mid", "upper", "lower" (output de cette feature)
+    Params:
+        window: int, window size (e.g., 20).
+        n_std: float, standard deviation multiplier (e.g., 2.0).
+        band: "mid", "upper", "lower" (output of this feature).
     """
     if "window" not in spec.params:
         raise ValueError(
-            f"Feature '{spec.name}' (bollinger) nécessite params['window']."
+            f"Feature '{spec.name}' (bollinger) requires params['window']."
         )
 
     col = spec.col("price", default="close")
@@ -474,13 +490,13 @@ def _feat_bollinger(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
 @feature("macd")
 def _feat_macd(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     """
-    MACD classique sur une série (par défaut close), par symbol.
+    Classic MACD on a series (default: close), by symbol.
 
-    params:
-        fast   : int, période EMA rapide (ex. 12)
-        slow   : int, période EMA lente (ex. 26)
-        signal : int, période EMA de la ligne MACD (ex. 9)
-        component : "macd", "signal", "hist"
+    Params:
+        fast: int, fast EMA period (e.g., 12).
+        slow: int, slow EMA period (e.g., 26).
+        signal: int, MACD line EMA period (e.g., 9).
+        component: "macd", "signal", "hist".
     """
     col = spec.col("price", default="close")
 
@@ -492,7 +508,7 @@ def _feat_macd(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
     slow_alpha = 2.0 / (slow + 1.0)
     signal_alpha = 2.0 / (signal + 1.0)
 
-    # EMA rapides et lentes
+    # Fast and slow EMAs
     df = df.with_columns(
         pl.col(col)
         .ewm_mean(alpha=fast_alpha, adjust=False)
@@ -532,7 +548,7 @@ def _feat_macd(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
         pl.col(comp_map[comp]).alias(spec.name)
     )
 
-    # Nettoyage colonnes temporaires
+    # Cleanup temporary columns
     df = df.drop(
         "_macd_fast",
         "_macd_slow",
@@ -541,20 +557,3 @@ def _feat_macd(df: pl.DataFrame, spec: FeatureSpec) -> pl.DataFrame:
         "_macd_hist",
     )
     return df
-
-
-# -------------------------------------------------------------------
-# Registration des features de base au chargement du module
-# -------------------------------------------------------------------
-
-# register_feature("ret", _feat_ret)
-# register_feature("logret", _feat_logret)
-# register_feature("ma", _feat_ma)
-# register_feature("ema", _feat_ema)
-# register_feature("rolling_vol", _feat_rolling_vol)
-# register_feature("cs_rank", _feat_cs_rank)
-# register_feature("cs_zscore", _feat_cs_zscore)
-# register_feature("atr", _feat_atr)
-# register_feature("rsi", _feat_rsi)
-# register_feature("bollinger", _feat_bollinger)
-# register_feature("macd", _feat_macd)

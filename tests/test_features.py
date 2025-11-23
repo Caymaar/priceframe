@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 from priceframe.core import PriceFrame
 from priceframe.features import FeatureSpec, list_registered_features
@@ -9,7 +8,7 @@ from priceframe.features import FeatureSpec, list_registered_features
 
 def make_pf_single_symbol():
     """
-    PriceFrame pour un seul symbole, daily, avec un chemin simple.
+    PriceFrame for a single symbol, daily, with a simple path.
     """
     idx = pd.date_range("2024-01-01", periods=10, freq="D", tz="UTC")
     data = []
@@ -39,7 +38,7 @@ def test_registry_contains_expected_features():
     names = list_registered_features()
     expected = {"ret", "logret", "ma", "ema", "rolling_vol", "cs_rank",
                 "cs_zscore", "atr", "rsi", "bollinger", "macd"}
-    # au moins tous ceux-là doivent être présents
+    # At least all of these must be present
     for e in expected:
         assert e in names
 
@@ -72,19 +71,19 @@ def test_ret_and_rolling_vol_with_specs():
     ret_manual[1:] = close[1:] / close[:-1] - 1.0
 
     f_ret = out["f_ret_1"].values
-    # ignorer la première valeur NaN
+    # Ignore first NaN value
     np.testing.assert_allclose(
         f_ret[1:], ret_manual[1:], rtol=1e-12, atol=1e-12
     )
 
-    # rolling vol > 0 après quelques points
+    # Rolling vol > 0 after a few points
     assert np.nanmax(out["f_vol_3"].values) > 0
 
 
 def test_atr_sma_matches_manual():
     """
-    On construit un petit chemin OHLC, on calcule ATR(3) via spec "atr"
-    (méthode SMA), et on compare à un calcul pandas équivalent.
+    Build a small OHLC path, calculate ATR(3) via "atr" spec
+    (SMA method), and compare to equivalent pandas calculation.
     """
     idx = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
     data = []
@@ -120,7 +119,7 @@ def test_atr_sma_matches_manual():
     pf_feat = pf.with_feature_specs(specs)
     out = pf_feat.to_pandas().sort_values("ts")
 
-    # calcul manuel TR + ATR(3) avec pandas
+    # Manual TR + ATR(3) calculation with pandas
     g = df.sort_values("ts").copy()
     prev_close = g["close"].shift(1)
 
@@ -160,7 +159,7 @@ def test_rsi_trending_up_gives_high_value():
     pf_feat = pf.with_feature_specs(specs)
     out = pf_feat.to_pandas().sort_values("ts")
 
-    # dernier RSI doit être > 70 environ sur une forte tendance haussière
+    # Last RSI should be > 70 on a strong uptrend
     last_rsi = out["f_rsi_14"].iloc[-1]
     assert last_rsi > 70
 
@@ -193,7 +192,7 @@ def test_bollinger_bands_consistency():
     out = pf_feat.to_pandas().sort_values("ts")
 
     print(out.dtypes)
-    # upper >= mid >= lower pour tous les points
+    # upper >= mid >= lower for all points
     bb_mid = out["f_bb_mid"].dropna().values
     bb_up = out["f_bb_up"].dropna().values
     bb_low = out["f_bb_low"].dropna().values
@@ -218,18 +217,18 @@ def test_macd_hist_non_trivial_on_trend():
     out = pf_feat.to_pandas().sort_values("ts")
 
     hist = out["f_macd_hist"].values
-    # on veut au moins un point non nul / non NaN après quelques pas
+    # We want at least one non-zero / non-NaN point after a few steps
     assert np.any(np.isfinite(hist[3:]) & (np.abs(hist[3:]) > 0))
 
 
 def test_with_features_vs_with_feature_specs_equivalence_on_ret():
     """
-    Vérifie que ret_1 via FeatureSpec donne le même résultat
-    qu'une implémentation Polars "maison" passée à with_features.
+    Verify that ret_1 via FeatureSpec gives the same result
+    as a custom Polars implementation passed to with_features.
     """
     pf = make_pf_single_symbol()
 
-    # 1) via FeatureSpec
+    # 1) Via FeatureSpec
     spec = FeatureSpec(
         name="f_ret_1_spec",
         func="ret",
@@ -238,7 +237,7 @@ def test_with_features_vs_with_feature_specs_equivalence_on_ret():
     )
     pf_spec = pf.with_feature_specs([spec])
 
-    # 2) via fonction Polars custom
+    # 2) Via custom Polars function
     def f_ret_1(df: pl.DataFrame) -> pl.DataFrame:
         return df.with_columns(
             (
@@ -251,7 +250,7 @@ def test_with_features_vs_with_feature_specs_equivalence_on_ret():
     df_spec = pf_spec.to_pandas().sort_values(["symbol", "ts"])
     df_fn = pf_fn.to_pandas().sort_values(["symbol", "ts"])
 
-    # comparer à partir du 2e point (le 1er est NaN)
+    # Compare from 2nd point (1st is NaN)
     s1 = df_spec["f_ret_1_spec"].values[1:]
     s2 = df_fn["f_ret_1_fn"].values[1:]
 

@@ -5,7 +5,7 @@ from priceframe.core import PriceFrame
 try:
     from xbbg import blp
 except ImportError or ModuleNotFoundError:
-    raise ImportError("xbbg et blpapi sont requis pour utiliser le module priceframe.io.bloomberg. vous pouvez les installer via pip install priceframe[bloomberg]")
+    raise ImportError("xbbg and blpapi are required to use the priceframe.io.bloomberg module. You can install them via: pip install priceframe[bloomberg]")
 
 OHLVC_FIELDS = ["PX_OPEN", "PX_HIGH", "PX_LOW", "PX_LAST", "PX_VOLUME"]
 CLOSE_FIELD = ["PX_LAST"]
@@ -27,7 +27,19 @@ def _bloomberg_request(tickers: Union[str, list[str]],
                        currency: str = None, 
                        **kwargs) -> PriceFrame:
     """
-    Effectue une requête Bloomberg via xbbg et retourne un PriceFrame.
+    Execute a Bloomberg request via xbbg and return a PriceFrame.
+    
+    Args:
+        tickers: Single ticker or list of tickers.
+        start_date: Start date for data range.
+        end_date: End date for data range.
+        interval: Time interval string.
+        type_: Data type - 'close', 'ohlcv', or 'ohlc'.
+        currency: Currency for data.
+        **kwargs: Additional arguments passed to blp.bdh.
+        
+    Returns:
+        PriceFrame: New PriceFrame with Bloomberg data.
     """
 
     
@@ -65,14 +77,14 @@ def _bloomberg_request(tickers: Union[str, list[str]],
         **kwargs
     )
 
-    # Ajuster le DataFrame pour correspondre au format attendu par PriceFrame
+    # Adjust DataFrame to match PriceFrame expected format
     df = results.stack(level=0).rename_axis(index=['ts', 'symbol']).reset_index()
     for col in df.columns[2:]:
         if col in MAPPING_FIELDS:
             df = df.rename(columns={col: MAPPING_FIELDS[col]})
 
     if interval is not None and interval != "1d":
-        raise NotImplementedError("Seul l'intervalle '1d' est supporté pour le moment.")
+        raise NotImplementedError("Only '1d' interval is supported for now.")
 
     if interval is not None:
         df["interval"] = interval

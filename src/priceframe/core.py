@@ -13,7 +13,7 @@ from datetime import datetime
 from .features import FeatureSpec, build_feature_fn
 
 # ---------------------------------------------------------------------
-# Schéma canonique : OHLCV par (symbol, interval, ts)
+# Canonical schema: OHLCV by (symbol, interval, ts)
 # ---------------------------------------------------------------------
 
 CANON_COLS = ["symbol", "interval", "ts", "open", "high", "low", "close", "volume"]
@@ -33,30 +33,30 @@ SCHEMA_V1 = pa.schema(CANON_TYPES)
 
 
 # ---------------------------------------------------------------------
-# Helpers Timestamps
+# Timestamp Helpers
 # ---------------------------------------------------------------------
 
 def _ensure_ts_ms_utc(col: pa.Array) -> pa.Array:
     """
-    Cast une colonne 'ts' vers timestamp[ms, tz='UTC'].
+    Cast a 'ts' column to timestamp[ms, tz='UTC'].
 
-    Cas gérés :
-    - timestamp naïf -> assume UTC, convert en ms.
-    - timestamp avec tz != UTC -> convert en UTC, en ms.
-    - numérique epoch (s ou ms) -> cast en UTC ms via heuristique.
+    Handled cases:
+    - Naive timestamp -> assume UTC, convert to ms.
+    - Timestamp with tz != UTC -> convert to UTC, in ms.
+    - Numeric epoch (s or ms) -> cast to UTC ms via heuristic.
     """
     t = col.type
 
-    # 1) Cas timestamp
+    # 1) Timestamp case
     if pa.types.is_timestamp(t):
         target = pa.timestamp("ms", tz="UTC")
 
-        # Naïf: assume UTC
+        # Naive: assume UTC
         if t.tz is None:
             col_ms = pc.cast(col, pa.timestamp("ms"))
             return pc.assume_timezone(col_ms, "UTC")
 
-        # Déjà tz-aware
+        # Already tz-aware
         col_tz = col
         if t.tz != "UTC":
             col_tz = pc.astimezone(col, "UTC")
@@ -66,12 +66,12 @@ def _ensure_ts_ms_utc(col: pa.Array) -> pa.Array:
 
         return col_tz
 
-    # 2) Cas numérique (epoch s ou ms)
+    # 2) Numeric case (epoch s or ms)
     if pa.types.is_integer(t) or pa.types.is_floating(t):
         sample = col.slice(0, min(10, len(col)))
         mx = max(sample.to_pylist()) if len(sample) > 0 else 0
 
-        # heuristique : > 1e11 ⇒ ms
+        # Heuristic: > 1e11 ⇒ ms
         if mx > 10**11:
             return pc.cast(col, pa.timestamp("ms", tz="UTC"))
         else:
@@ -85,12 +85,12 @@ def _ensure_ts_ms_utc(col: pa.Array) -> pa.Array:
 
 def _cast_to_canon(t: pa.Table) -> pa.Table:
     """
-    Applique le schéma canonique :
+    Apply the canonical schema:
     - ts -> timestamp[ms, tz='UTC']
-    - colonnes OHLCV -> float64 si possible.
+    - OHLCV columns -> float64 when possible.
     """
     if "ts" not in t.column_names:
-        raise KeyError("Colonne 'ts' manquante dans la table.")
+        raise KeyError("Column 'ts' missing from table.")
 
     # 1) ts
     ts_idx = t.schema.get_field_index("ts")
@@ -98,7 +98,7 @@ def _cast_to_canon(t: pa.Table) -> pa.Table:
     ts_canon = _ensure_ts_ms_utc(ts_col)
     t = t.set_column(ts_idx, "ts", ts_canon)
 
-    # 2) autres colonnes canoniques (tolérant)
+    # 2) Other canonical columns (tolerant)
     for name, target_type in CANON_TYPES.items():
         if name not in t.column_names:
             continue
@@ -109,7 +109,7 @@ def _cast_to_canon(t: pa.Table) -> pa.Table:
             casted = pc.cast(t.column(name), target_type, safe=False)
             t = t.set_column(t.schema.get_field_index(name), name, casted)
         except Exception:
-            # ex: volume en int64 acceptable
+            # e.g., volume as int64 is acceptable
             pass
 
     return t
@@ -117,15 +117,15 @@ def _cast_to_canon(t: pa.Table) -> pa.Table:
 
 def _sort_and_dedup(t: pa.Table) -> pa.Table:
     """
-    Tri par (symbol, ts) et drop duplicates sur (symbol, interval, ts).
+    Sort by (symbol, ts) and drop duplicates on (symbol, interval, ts).
     """
     t = t.sort_by([("symbol", "ascending"), ("ts", "ascending")])
 
-    # PyArrow récent : drop_duplicates
+    # Recent PyArrow: drop_duplicates
     try:
         t = pc.drop_duplicates(t, keys=["symbol", "interval", "ts"], keep="first")
     except Exception:
-        # Fallback pandas
+        # Fallback to pandas
         df = t.to_pandas(types_mapper=pd.ArrowDtype)
         df = df.sort_values(["symbol", "interval", "ts"]).drop_duplicates(
             subset=["symbol", "interval", "ts"], keep="first"
@@ -137,7 +137,7 @@ def _sort_and_dedup(t: pa.Table) -> pa.Table:
 
 def _normalize_ts_like(x) -> Optional[pd.Timestamp]:
     """
-    Convertit start/end entrés en pd.Timestamp UTC.
+    Convert start/end inputs to pd.Timestamp UTC.
     """
     if x is None:
         return None
@@ -150,12 +150,12 @@ def _normalize_ts_like(x) -> Optional[pd.Timestamp]:
 
 
 # ---------------------------------------------------------------------
-# Helpers fréquence / interval
+# Frequency / Interval Helpers
 # ---------------------------------------------------------------------
 
 def _interval_str_from_offset(off: pd.DateOffset) -> str:
     """
-    Offsets pandas -> notation canonique '1m','1h','1d','1w','1mo','1q','1y', etc.
+    Pandas offsets -> canonical notation '1m','1h','1d','1w','1mo','1q','1y', etc.
     """
     from pandas.tseries import offsets as po
 
@@ -199,22 +199,24 @@ def _interval_str_from_offset(off: pd.DateOffset) -> str:
 
 def infer_interval_from_index(index: pd.DatetimeIndex) -> tuple[pd.DateOffset, str]:
     """
-    Infère la fréquence d'un DatetimeIndex :
-    - retourne (offset pandas, 'interval_str' canonique).
+    Infer the frequency from a DatetimeIndex.
+    
+    Returns:
+        tuple[pd.DateOffset, str]: Pandas offset and canonical 'interval_str'.
     """
     from pandas.tseries.frequencies import to_offset
 
     if len(index) < 2:
-        raise ValueError("Index trop court pour inférer une fréquence.")
+        raise ValueError("Index too short to infer frequency.")
 
     f = pd.infer_freq(index)
     if f is None:
         diffs = pd.Series(index[1:] - index[:-1]).dropna()
         if len(diffs) == 0:
-            raise ValueError("Impossible d'inférer la fréquence (un seul point).")
+            raise ValueError("Unable to infer frequency (single point).")
         med = diffs.median()
 
-        # heuristiques super simples
+        # Simple heuristics
         if med.components.days >= 365:
             f = "A"
         elif med.components.days >= 90:
@@ -251,7 +253,7 @@ def infer_interval_from_index(index: pd.DatetimeIndex) -> tuple[pd.DateOffset, s
                 f = "W"
             else:
                 raise ValueError(
-                    f"Impossible d'inférer la fréquence (delta médian={med})."
+                    f"Unable to infer frequency (median delta={med})."
                 )
 
     off = to_offset(f)
@@ -261,11 +263,11 @@ def infer_interval_from_index(index: pd.DatetimeIndex) -> tuple[pd.DateOffset, s
 
 def _parse_interval(interval: str) -> tuple[int, str]:
     """
-    '1m','5m','1h','1d','1w','1mo','1q','1y' -> (1,'m') etc.
+    Parse interval strings like '1m','5m','1h','1d','1w','1mo','1q','1y' -> (1,'m') etc.
     """
     m = re.fullmatch(r"(\d+)\s*([A-Za-z]+)", interval.strip())
     if not m:
-        raise ValueError(f"Interval invalide: {interval!r}")
+        raise ValueError(f"Invalid interval: {interval!r}")
     n = int(m.group(1))
     u = m.group(2).lower()
     return n, u
@@ -273,8 +275,12 @@ def _parse_interval(interval: str) -> tuple[int, str]:
 
 def interval_to_offset(interval: str) -> tuple[pd.DateOffset, str]:
     """
-    Convertit une string d'interval utilisateur vers (offset pandas, interval_str canonique).
-    Accepte formats comme '1m','5m','1h','1d','1w','1mo','1q','1y'.
+    Convert a user interval string to (pandas offset, canonical interval_str).
+    
+    Accepts formats like '1m','5m','1h','1d','1w','1mo','1q','1y'.
+    
+    Returns:
+        tuple[pd.DateOffset, str]: Pandas offset and canonical interval string.
     """
     from pandas.tseries.frequencies import to_offset
 
@@ -292,7 +298,7 @@ def interval_to_offset(interval: str) -> tuple[pd.DateOffset, str]:
     try:
         n, u = _parse_interval(interval)
     except ValueError:
-        # fallback : laisser pandas interpréter directement
+        # Fallback: let pandas interpret directly
         off = to_offset(interval)
         return off, _interval_str_from_offset(off)
 
@@ -307,9 +313,10 @@ def interval_to_offset(interval: str) -> tuple[pd.DateOffset, str]:
 
 def _open_shift_from_offset(off: pd.DateOffset) -> pd.DateOffset:
     """
-    Si l'index représente le close, de combien on décale vers l'open ?
-    Pour des offsets journaliers / horaires etc. : off lui-même.
-    Pour MonthEnd/QuarterEnd/YearEnd : shift au début de période suivante.
+    If the index represents the close, by how much do we shift to the open?
+    
+    For daily/hourly offsets: the offset itself.
+    For MonthEnd/QuarterEnd/YearEnd: shift to beginning of next period.
     """
     from pandas.tseries import offsets as po
 
@@ -323,34 +330,35 @@ def _open_shift_from_offset(off: pd.DateOffset) -> pd.DateOffset:
 
 
 # ---------------------------------------------------------------------
-# Type pour les fonctions de features
+# Type for feature functions
 # ---------------------------------------------------------------------
 
 FeatureFn = Callable[[pl.DataFrame], pl.DataFrame]
 
 
 # ---------------------------------------------------------------------
-# Dataclass principale
+# Main Dataclass
 # ---------------------------------------------------------------------
 
 @dataclass
 class PriceFrame:
     """
-    Stockage canonique de prix :
-    - une ligne = (symbol, interval, ts, OHLCV, colonnes extra éventuelles)
-    - ts en UTC millisecondes
-    - 'interval' : string canonique (ex: '1m','1h','1d','1w','1mo','1q','1y')
-
-    Invariant recommandé : un PriceFrame = UNE seule fréquence
-    (les méthodes temporelles supposent un interval unique et appellent
-    ensure_single_interval()).
+    Canonical price storage.
+    
+    Structure:
+        - One row = (symbol, interval, ts, OHLCV, optional extra columns)
+        - ts in UTC milliseconds
+        - 'interval': canonical string (e.g., '1m','1h','1d','1w','1mo','1q','1y')
+    
+    Recommended invariant: one PriceFrame = ONE single frequency.
+    (Temporal methods assume a unique interval and call ensure_single_interval()).
     """
 
     table: pa.Table
     schema_version: str = "ohlcv_v1"
 
     # -----------------------------------------------------------------
-    # Constructeurs
+    # Constructors
     # -----------------------------------------------------------------
     @classmethod
     def from_pandas(cls, df: pd.DataFrame, 
@@ -360,8 +368,19 @@ class PriceFrame:
                     quote_ccy: Union[str, None] = None
                     ) -> 'PriceFrame':
         """
-        Constructeur à partir d'un DataFrame long (symbol / interval / ts / OHLCV).
-        Normalise les noms, types, tz, tri, dedup.
+        Constructor from a long DataFrame (symbol / interval / ts / OHLCV).
+        
+        Normalizes names, types, timezone, sorting, and deduplication.
+        
+        Args:
+            df: Input pandas DataFrame.
+            interval: Time interval string (e.g., '1h', '1d'). If None, will be inferred.
+            impute_ohlcv: If True, impute missing OHLCV columns from close.
+            source: Optional source identifier.
+            quote_ccy: Optional quote currency.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
         rename = {
             "date": "ts",
@@ -373,7 +392,7 @@ class PriceFrame:
         df = df.copy()
         df.columns = [c.lower() for c in df.columns]
 
-        # Ajouter colonnes manquantes
+        # Add missing columns
         for c in [c for c in CANON_COLS if c not in df.columns]:
             if c in ["open", "high", "low", "close", "volume"] and impute_ohlcv:
                 if c == "volume":
@@ -386,9 +405,9 @@ class PriceFrame:
         # ts -> tz-aware UTC
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
 
-        # inférer interval si absent
+        # Infer interval if absent
         if interval is None and "interval" not in df.columns:
-            # créer un DatetimeIndex sans doublons
+            # Create DatetimeIndex without duplicates
             idx = pd.DatetimeIndex(sorted(df["ts"].unique()))
             _, interval_str = infer_interval_from_index(idx)
             df["interval"] = interval_str
@@ -396,11 +415,11 @@ class PriceFrame:
             _, interval_str = interval_to_offset(interval)
             df["interval"] = interval_str
         
-        # numériques OHLCV
+        # Numeric OHLCV
         for c in ["open", "high", "low", "close", "volume"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-        # tri + dedup
+        # Sort + deduplicate
         df = (
             df.sort_values(["symbol", "interval", "ts"])
             .drop_duplicates(subset=["symbol", "interval", "ts"])
@@ -422,7 +441,13 @@ class PriceFrame:
     @classmethod
     def from_arrow(cls, table: pa.Table) -> 'PriceFrame':
         """
-        Construction à partir d'une table Arrow déjà en long-format.
+        Constructor from an Arrow table already in long format.
+        
+        Args:
+            table: PyArrow table with OHLCV data.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
         rename_map = {
             "open_time": "ts",
@@ -438,13 +463,13 @@ class PriceFrame:
 
         missing = [c for c in CANON_COLS if c not in table.column_names]
         if missing:
-            raise ValueError(f"Colonnes manquantes: {missing}")
+            raise ValueError(f"Missing columns: {missing}")
 
         table = _cast_to_canon(table)
         table = _sort_and_dedup(table)
         return cls(table)
 
-    # --- IO externes : à implémenter dans des modules dédiés (bloomberg, binance, ...) ---
+    # --- External IO: to be implemented in dedicated modules (bloomberg, binance, ...) ---
 
     @classmethod
     def from_bloomberg(cls, 
@@ -456,7 +481,21 @@ class PriceFrame:
                        currency: str = None, 
                        **kwargs) -> 'PriceFrame':
         """
-        Stub : à implémenter dans un module séparé (ex: priceframe.io.bloomberg).
+        Load data from Bloomberg.
+        
+        Stub: to be implemented in a separate module (e.g., priceframe.io.bloomberg).
+        
+        Args:
+            tickers: Single ticker or list of tickers.
+            start_date: Start date for data range.
+            end_date: End date for data range.
+            interval: Time interval string.
+            type_: Data type - 'close', 'ohlcv', or 'ohlc'.
+            currency: Currency for data.
+            **kwargs: Additional arguments.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
         from .io.bloomberg import _bloomberg_request
         return _bloomberg_request(
@@ -477,7 +516,18 @@ class PriceFrame:
                    currency: str = None
                    ) -> 'PriceFrame':
         """
-        Stub : à implémenter dans un module séparé (ex: priceframe.io.dblib).
+        Load data from database library.
+        
+        Stub: to be implemented in a separate module (e.g., priceframe.io.dblib).
+        
+        Args:
+            ids: Single ID or list of IDs.
+            start_date: Start date for data range.
+            end_date: End date for data range.
+            currency: Currency for data.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """        
         from .io.dblib import _dblib_request
         return _dblib_request(
@@ -490,14 +540,26 @@ class PriceFrame:
     @classmethod
     def from_binance(cls, *args, **kwargs) -> 'PriceFrame':
         """
-        Stub : à implémenter dans un module séparé (ex: priceframe.io.binance).
+        Load data from Binance.
+        
+        Stub: to be implemented in a separate module (e.g., priceframe.io.binance).
+        
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
-        raise NotImplementedError("Utiliser un module IO dédié (ex: priceframe.io.binance).")
+        raise NotImplementedError("Use a dedicated IO module (e.g., priceframe.io.binance).")
     
     @classmethod
     def from_excel(cls, filepath: str, **kwargs) -> 'PriceFrame':
         """
-        Chargement depuis un fichier Excel.
+        Load data from an Excel file.
+        
+        Args:
+            filepath: Path to Excel file.
+            **kwargs: Additional arguments passed to pd.read_excel.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
         return PriceFrame.from_pandas(pd.read_excel(filepath, **kwargs))
 
@@ -518,21 +580,26 @@ class PriceFrame:
         use_arrow_dtypes: bool = False,
     ) -> pd.DataFrame:
         """
-        Conversion vers pandas.
-
-        - use_arrow_dtypes=False (défaut) :
-            DataFrame pandas "classique" (pas de dtypes [pyarrow]).
-            * ts        -> datetime64[ns, UTC]
-            * floats    -> float64
-            * ints      -> Int64 (entiers nullable)
-            * bool      -> bool
-            * string    -> object
-
-        - use_arrow_dtypes=True :
-            renvoie les dtypes Arrow tels que produits par pyarrow.Table.to_pandas().
+        Convert to pandas DataFrame.
+        
+        Args:
+            index: Index type - None (default), 'ts', or 'multi'.
+            use_arrow_dtypes: If False (default), use classic pandas dtypes.
+                If True, preserve Arrow dtypes.
+        
+        Returns:
+            pd.DataFrame: Converted DataFrame.
+            
+        Notes:
+            With use_arrow_dtypes=False:
+                * ts      -> datetime64[ns, UTC]
+                * floats  -> float64
+                * ints    -> Int64 (nullable integer)
+                * bool    -> bool
+                * string  -> object
         """
-        # 1) DataFrame brut issu d'Arrow
-        raw = self.table.to_pandas()  # donne souvent des ArrowDtype en pandas 2.x
+        # 1) Raw DataFrame from Arrow
+        raw = self.table.to_pandas()  # Often gives ArrowDtype in pandas 2.x
 
         if use_arrow_dtypes:
             df = raw
@@ -543,31 +610,31 @@ class PriceFrame:
                 dtype = df[col].dtype
                 pa_type = getattr(dtype, "pyarrow_dtype", None)
 
-                # Si pas un ArrowDtype, on laisse tel quel
+                # If not an ArrowDtype, leave as is
                 if pa_type is None:
                     continue
 
-                # --- Cas particulier: ts ---
+                # --- Special case: ts ---
                 if col == "ts":
-                    # Forcer en datetime64[ns, UTC]
+                    # Force to datetime64[ns, UTC]
                     df[col] = pd.to_datetime(df[col], utc=True)
                     continue
 
-                # --- Mapping générique Arrow -> pandas ---
+                # --- Generic Arrow -> pandas mapping ---
                 if pa.types.is_floating(pa_type):
                     df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
                 elif pa.types.is_integer(pa_type):
-                    # Si tu préfères tout en float64, remplace par float64 ici
+                    # If you prefer all float64, replace with float64 here
                     df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
                 elif pa.types.is_boolean(pa_type):
                     df[col] = df[col].astype("bool")
                 elif pa.types.is_string(pa_type):
                     df[col] = df[col].astype("object")
                 else:
-                    # Fallback : on bascule en object
+                    # Fallback: convert to object
                     df[col] = df[col].astype("object")
 
-        # 2) Gestion de l'index
+        # 2) Index handling
         if index == "ts":
             df = df.set_index("ts").sort_index()
         elif index == "multi":
@@ -578,37 +645,50 @@ class PriceFrame:
 
     def to_excel(self, filepath: str, index: bool = False, **kwargs) -> None:
         """
-        Sauvegarde dans un fichier Excel.
+        Save to an Excel file.
+        
+        Args:
+            filepath: Path to Excel file.
+            index: Whether to write row index.
+            **kwargs: Additional arguments passed to pd.DataFrame.to_excel.
         """
         df = self.to_pandas()
         df['ts'] = pd.to_datetime(df['ts']).dt.date
         df.to_excel(filepath, index=index, **kwargs)
 
     # -----------------------------------------------------------------
-    # Invariants & utilitaires de base
+    # Invariants & Basic Utilities
     # -----------------------------------------------------------------
 
     def ensure_single_interval(self) -> str:
         """
-        Vérifie que la colonne 'interval' a une seule valeur.
-        Retourne cette valeur.
+        Verify that the 'interval' column has a single value.
+        
+        Returns:
+            str: The unique interval value.
+            
+        Raises:
+            ValueError: If multiple intervals are present.
         """
         uniques = pc.unique(self.table["interval"]).to_pylist()
         if len(uniques) != 1:
-            raise ValueError(f"PriceFrame multi-fréquence non supporté pour cette opération: {uniques}")
+            raise ValueError(f"Multi-frequency PriceFrame not supported for this operation: {uniques}")
         return uniques[0]
 
     def infer_interval(self) -> str:
         """
-        Infère la fréquence à partir de ts, en supposant mono-fréquence.
+        Infer the frequency from ts, assuming single frequency.
+        
+        Returns:
+            str: Inferred interval string.
         """
         df = self.to_pandas(index="ts")
         off, interval_str = infer_interval_from_index(df.index)
-        _ = off  # pas utilisé pour l'instant, mais dispo si besoin
+        _ = off  # Not used for now, but available if needed
         return interval_str
 
     # -----------------------------------------------------------------
-    # Accesseurs
+    # Accessors
     # -----------------------------------------------------------------
 
     def for_symbol(self, symbol: str) -> 'PriceFrame':
@@ -622,18 +702,31 @@ class PriceFrame:
 
     def feature_columns(self, prefix: str = "f_") -> list[str]:
         """
-        Retourne les colonnes dont le nom commence par `prefix` (features).
+        Return columns whose names start with `prefix` (features).
+        
+        Args:
+            prefix: Column name prefix to filter.
+            
+        Returns:
+            list[str]: List of matching column names.
         """
         return [c for c in self.table.column_names if c.startswith(prefix)]
 
     # -----------------------------------------------------------------
-    # API Features / indicateurs
+    # Features / Indicators API
     # -----------------------------------------------------------------
 
     def with_features(self, fns: Sequence[FeatureFn]) -> "PriceFrame":
         """
-        Applique une liste de fonctions de features Polars :
-        chaque fn: pl.DataFrame -> pl.DataFrame (ajoute/modifie des colonnes).
+        Apply a list of Polars feature functions.
+        
+        Each fn: pl.DataFrame -> pl.DataFrame (adds/modifies columns).
+        
+        Args:
+            fns: Sequence of feature functions.
+            
+        Returns:
+            PriceFrame: New PriceFrame with features applied.
         """
         pl_df = self.to_polars().sort(["symbol", "ts"])
         for fn in fns:
@@ -642,21 +735,43 @@ class PriceFrame:
 
     def with_indicators(self, *fns: FeatureFn) -> "PriceFrame":
         """
-        Alias pour with_features, usage plus "finance".
+        Alias for with_features, more finance-oriented usage.
+        
+        Args:
+            *fns: Variable number of feature functions.
+            
+        Returns:
+            PriceFrame: New PriceFrame with indicators applied.
         """
         return self.with_features(fns)
 
     def with_feature_specs(self, specs: Sequence[FeatureSpec]) -> "PriceFrame":
         """
-        Applique une liste de FeatureSpec déclaratives sur ce PriceFrame.
+        Apply a list of declarative FeatureSpecs to this PriceFrame.
+        
+        Args:
+            specs: Sequence of FeatureSpec instances.
+            
+        Returns:
+            PriceFrame: New PriceFrame with features applied.
         """
         fns = [build_feature_fn(spec) for spec in specs]
         return self.with_features(fns)
     # -----------------------------------------------------------------
-    # Data access high-level
+    # High-Level Data Access
     # -----------------------------------------------------------------
 
     def ohlcv(self, symbol: str, engine: str = "pandas") -> Union[pd.DataFrame, pl.DataFrame]:
+        """
+        Get OHLCV data for a specific symbol.
+        
+        Args:
+            symbol: Symbol to retrieve.
+            engine: 'pandas' or 'polars'.
+            
+        Returns:
+            DataFrame with OHLCV columns.
+        """
         pf = self.for_symbol(symbol)
         if engine == "pandas":
             df = pf.to_pandas(index="ts")
@@ -672,6 +787,16 @@ class PriceFrame:
             raise ValueError("engine ∈ {'pandas','polars'}")
 
     def close_series(self, symbol: str, engine: str = "pandas"):
+        """
+        Get close price series for a specific symbol.
+        
+        Args:
+            symbol: Symbol to retrieve.
+            engine: 'pandas' or 'polars'.
+            
+        Returns:
+            Series/DataFrame with close prices.
+        """
         pf = self.for_symbol(symbol).only_close()
         if engine == "pandas":
             s = pf.to_pandas(index="ts")["close"]
@@ -681,15 +806,27 @@ class PriceFrame:
             pl_df = pf.to_polars().select(["ts", "close"]).sort("ts")
             return pl_df.rename({"close": symbol})
         else:
-            raise ValueError("engine ∈ {'pandas','polars'}")
+            raise ValueError("engine must be 'pandas' or 'polars'")
 
     def close_matrix(
         self,
         symbols: Optional[list[str]] = None,
-        how: str = "inner",        # 'inner' ou 'outer'
+        how: str = "inner",        # 'inner' or 'outer'
         fill: Union[float, None] = None,
         engine: str = "pandas",
     ):
+        """
+        Create a close price matrix (timestamps x symbols).
+        
+        Args:
+            symbols: List of symbols to include (None for all).
+            how: Join type - 'inner' or 'outer'.
+            fill: Value to fill NaN with.
+            engine: 'pandas' or 'polars'.
+            
+        Returns:
+            DataFrame/matrix with close prices.
+        """
         if engine == "pandas":
             df = self.to_pandas()  # long
             piv = df.pivot_table(
@@ -727,7 +864,7 @@ class PriceFrame:
             raise ValueError("engine ∈ {'pandas','polars'}")
 
     # -----------------------------------------------------------------
-    # Filtres temporels
+    # Temporal Filters
     # -----------------------------------------------------------------
 
     def range_date(
@@ -738,7 +875,15 @@ class PriceFrame:
         closed: str = "both",  # "both" | "left" | "right" | "neither"
     ) -> 'PriceFrame':
         """
-        Filtre sur [start, end] selon `closed`.
+        Filter data on [start, end] according to `closed`.
+        
+        Args:
+            start: Start date/timestamp.
+            end: End date/timestamp.
+            closed: Interval closure - "both", "left", "right", or "neither".
+            
+        Returns:
+            PriceFrame: Filtered PriceFrame.
         """
         t = self.table
 
@@ -768,7 +913,7 @@ class PriceFrame:
         return PriceFrame(t2, schema_version=self.schema_version)
 
     # -----------------------------------------------------------------
-    # Rebase & resample
+    # Rebase & Resample
     # -----------------------------------------------------------------
 
     def rebase(
@@ -779,20 +924,29 @@ class PriceFrame:
         cols: tuple[str, ...] = ("open", "high", "low", "close"),
     ) -> 'PriceFrame':
         """
-        Rebase OHLC par symbole :
-        - 1er anchor non-NaN = base
-        - les colonnes `cols` sont rescalées par le même facteur.
+        Rebase OHLC by symbol.
+        
+        First non-NaN anchor value = base.
+        The columns in `cols` are rescaled by the same factor.
+        
+        Args:
+            base: Base value for rebasing.
+            anchor: Column to use as anchor for rebasing.
+            cols: Tuple of columns to rebase.
+            
+        Returns:
+            PriceFrame: Rebased PriceFrame.
         """
         df = self.to_pandas().sort_values(["symbol", "ts"]).reset_index(drop=True)
 
         if anchor not in df.columns:
-            raise KeyError(f"Colonne d'ancrage '{anchor}' absente.")
+            raise KeyError(f"Anchor column '{anchor}' not found.")
 
         for c in cols:
             if c not in df.columns:
-                raise KeyError(f"Colonne '{c}' absente.")
+                raise KeyError(f"Column '{c}' not found.")
 
-        # Supprimer lignes avant premier anchor non-NaN par symbole
+        # Remove rows before first non-NaN anchor per symbol
         has_obs_cum = (
             df.groupby("symbol")[anchor]
             .apply(lambda s: s.notna().cumsum() > 0)
@@ -800,7 +954,7 @@ class PriceFrame:
         )
         df = df[has_obs_cum].copy()
 
-        # Facteur d'échelle par symbole
+        # Scale factor per symbol
         first_anchor = df.groupby("symbol")[anchor].transform("first")
         scale = (float(base) / first_anchor).astype(float)
 
@@ -816,37 +970,37 @@ class PriceFrame:
         how: Literal["ohlcv"] = "ohlcv",
     ) -> "PriceFrame":
         """
-        Resample OHLCV vers un intervalle plus large (downsampling) par symbole.
+        Resample OHLCV to a larger interval (downsampling) by symbol.
 
-        Exemples valides :
+        Valid examples:
         - 1d -> 1w
         - 1d -> 1mo
         - 1h -> 1d
 
-        L'upsampling (ex: 1w -> 1d) est rejeté.
+        Upsampling (e.g., 1w -> 1d) is rejected.
 
-        Paramètres
-        ----------
-        target_interval : str
-            Ex: "1w","1d","1mo","1q","1y","1h","5m",...
-        how : "ohlcv"
-            Pour l'instant, on ne supporte que l'agrégation OHLCV standard :
-            open = first, high = max, low = min, close = last, volume = sum.
+        Args:
+            target_interval: Target interval string (e.g., "1w", "1d", "1mo", "1q", "1y", "1h", "5m", ...).
+            how: Aggregation method. Currently only "ohlcv" is supported.
+                 Standard OHLCV aggregation: open=first, high=max, low=min, close=last, volume=sum.
+        
+        Returns:
+            PriceFrame: Resampled PriceFrame.
         """
         if how != "ohlcv":
-            raise NotImplementedError("Pour l'instant, resample() supporte seulement how='ohlcv'.")
+            raise NotImplementedError("For now, resample() only supports how='ohlcv'.")
 
-        # ---------- 1) Vérifier que le PriceFrame est mono-interval ----------
+        # ---------- 1) Verify that PriceFrame is single-interval ----------
         t = self.table
         intervals = set(t.column("interval").to_pylist())
         if len(intervals) != 1:
-            raise ValueError(f"resample() attend un PriceFrame mono-interval, trouvé {intervals}")
+            raise ValueError(f"resample() expects a single-interval PriceFrame, found {intervals}")
         current_interval = next(iter(intervals))
 
-        # ---------- 2) Helpers pour parser et comparer les intervalles ----------
+        # ---------- 2) Helpers to parse and compare intervals ----------
         def _parse_interval(s: str):
             """
-            Transforme '1d','5m','1w','1mo','1q','1y' en (n, unit).
+            Transform '1d','5m','1w','1mo','1q','1y' to (n, unit).
             """
             m = re.fullmatch(r"(\d+)\s*([A-Za-z]+)", s.strip())
             if not m:
@@ -873,18 +1027,18 @@ class PriceFrame:
                 raise ValueError(f"Unité d'intervalle inconnue: {u!r}")
             return n * unit_scale[u]
 
-        # Interdit l'upsampling : target doit être plus large ou égal à current
+        # Upsampling is forbidden: target must be larger or equal to current
         cur_dur = _duration_seconds(current_interval)
         tgt_dur = _duration_seconds(target_interval)
         if tgt_dur < cur_dur:
             raise ValueError(
-                f"Upsampling non supporté: current={current_interval}, target={target_interval}"
+                f"Upsampling not supported: current={current_interval}, target={target_interval}"
             )
 
-        # ---------- 3) Mapping vers une fréquence pandas ----------
+        # ---------- 3) Mapping to pandas frequency ----------
         def _to_pandas_freq(interval_str: str) -> str:
             n, u = _parse_interval(interval_str)
-            # mapping vers codes pandas
+            # Mapping to pandas codes
             mapping = {
                 "s": "S",
                 "m": "T",
@@ -901,18 +1055,18 @@ class PriceFrame:
 
         pandas_freq = _to_pandas_freq(target_interval)
 
-        # ---------- 4) Passage en pandas pour l'agrégation ----------
+        # ---------- 4) Convert to pandas for aggregation ----------
         df = self.to_pandas()
-        # index = ts pour pouvoir resample
+        # index = ts for resampling
         df = df.set_index("ts").sort_index()
 
         result_frames = []
 
-        # on resample par symbole
+        # Resample by symbol
         for sym, g in df.groupby("symbol", sort=False):
             rs = g.resample(pandas_freq)
 
-            # agrégation OHLCV classique
+            # Classic OHLCV aggregation
             agg = pd.DataFrame(
                 {
                     "open": rs["open"].first(),
@@ -923,7 +1077,7 @@ class PriceFrame:
                 }
             )
 
-            # on enlève les lignes vides (par ex. si aucune donnée dans une fenêtre)
+            # Remove empty rows (e.g., if no data in a window)
             agg = agg.dropna(subset=["open", "high", "low", "close"], how="all")
 
             if agg.empty:
@@ -932,11 +1086,11 @@ class PriceFrame:
             agg["symbol"] = sym
             agg["interval"] = target_interval
 
-            # remettre ts en colonne
-            agg = agg.reset_index()  # ts redevient une colonne
+            # Put ts back as a column
+            agg = agg.reset_index()  # ts becomes a column again
             result_frames.append(agg)
 
-        # ---------- 5) Retour en PriceFrame ----------
+        # ---------- 5) Return as PriceFrame ----------
         if not result_frames:
             empty = pd.DataFrame(
                 columns=["symbol", "interval", "ts", "open", "high", "low", "close", "volume"]
@@ -945,73 +1099,9 @@ class PriceFrame:
 
         out_df = pd.concat(result_frames, ignore_index=True)
         return PriceFrame.from_pandas(out_df)
-    # def resample(
-    #     self,
-    #     target_interval: str,
-    #     *,
-    #     closed: str = "right",
-    #     label: str = "right",
-    # ) -> 'PriceFrame':
-    #     """
-    #     Downsample le PriceFrame vers `target_interval`.
-
-    #     Hypothèses :
-    #     - PriceFrame mono-fréquence (ou en pratique on ne vérifie que la granularité).
-    #     - target_interval plus large ou égal à l'interval courant.
-    #     - OHLC: open=1ère, high=max, low=min, close=dernière, volume = somme.
-
-    #     Ex: 1m -> 5m, 1h, 1d, 1mo.
-    #     """
-    #     # On compare les granularités
-    #     cur_interval = self.ensure_single_interval()
-    #     off_cur, _ = interval_to_offset(cur_interval)
-    #     off_tgt, tgt_str = interval_to_offset(target_interval)
-
-    #     if off_tgt.nanos < off_cur.nanos:
-    #         raise ValueError(
-    #             f"Upsampling non supporté: current={cur_interval} -> target={target_interval}"
-    #         )
-
-    #     if off_tgt.nanos == off_cur.nanos:
-    #         # même fréquence => rien à faire (on pourrait normaliser interval si besoin)
-    #         return self
-
-    #     df = self.to_pandas()
-    #     df = df.set_index("ts").sort_index()
-
-    #     pieces = []
-    #     for symbol, g in df.groupby("symbol", group_keys=False):
-    #         # g.index = ts
-    #         # resample avec agrégation OHLCV standard
-    #         resampled = (
-    #             g.resample(off_tgt, closed=closed, label=label)
-    #              .apply(
-    #                  lambda x: pd.Series(
-    #                      {
-    #                          "open": x["open"].iloc[0],
-    #                          "high": x["high"].max(),
-    #                          "low": x["low"].min(),
-    #                          "close": x["close"].iloc[-1],
-    #                          "volume": x["volume"].sum(),
-    #                      }
-    #                  )
-    #              )
-    #              .dropna(subset=["close"])
-    #         )
-    #         resampled["symbol"] = symbol
-    #         pieces.append(resampled)
-
-    #     if not pieces:
-    #         empty = pd.DataFrame(columns=CANON_COLS)
-    #         return PriceFrame.from_pandas(empty)
-
-    #     out = pd.concat(pieces)
-    #     out = out.reset_index().rename(columns={"index": "ts"})
-    #     out["interval"] = tgt_str
-    #     return PriceFrame.from_pandas(out)
 
     # -----------------------------------------------------------------
-    # Portefeuille naïf
+    # Naive Portfolio
     # -----------------------------------------------------------------
 
     def naive_portfolio(
@@ -1025,9 +1115,20 @@ class PriceFrame:
         as_: str = "series",         # "series" | "priceframe"
     ):
         """
-        Portefeuille naïf rebalancé à chaque barre (somme pondérée des returns).
+        Naive portfolio rebalanced at each bar (weighted sum of returns).
+        
+        Args:
+            symbols: List of symbols in the portfolio.
+            weights: List of weights corresponding to symbols.
+            base: Base value for the portfolio.
+            name: Portfolio name. If None, auto-generated.
+            align: Alignment method - "inner" or "ffill_union".
+            as_: Return type - "series" or "priceframe".
+            
+        Returns:
+            pd.Series or PriceFrame: Portfolio performance.
         """
-        # Matrice de closes alignée
+        # Aligned close matrix
         if align == "ffill_union":
             M = (
                 self.only_close()
@@ -1042,16 +1143,16 @@ class PriceFrame:
                 .sort_index()
             )
 
-        # Vérifs
+        # Validations
         missing = [s for s in symbols if s not in M.columns]
         if missing:
-            raise KeyError(f"Symbol(s) manquant(s) dans la matrice: {missing}")
+            raise KeyError(f"Missing symbol(s) in matrix: {missing}")
 
         W = np.asarray(weights, dtype=float)
         if W.ndim != 1 or len(W) != len(symbols):
-            raise ValueError("`weights` doit être un vecteur de même longueur que `symbols`.")
+            raise ValueError("`weights` must be a vector of same length as `symbols`.")
         if not np.isfinite(W).all():
-            raise ValueError("`weights` contient des valeurs non finies.")
+            raise ValueError("`weights` contains non-finite values.")
 
         M = M[symbols]
         R = M.pct_change().fillna(0.0)
@@ -1076,7 +1177,7 @@ class PriceFrame:
         )
 
     # -----------------------------------------------------------------
-    # Merge / union de PriceFrame
+    # Merge / Union of PriceFrames
     # -----------------------------------------------------------------
 
     def add(
@@ -1086,8 +1187,16 @@ class PriceFrame:
         require_same_interval: bool = True,
     ) -> 'PriceFrame':
         """
-        Concatène deux PriceFrame et dé-dup sur (symbol, interval, ts).
-        Retourne un **nouveau** PriceFrame (non-mutant).
+        Concatenate two PriceFrames and deduplicate on (symbol, interval, ts).
+        
+        Returns a **new** PriceFrame (non-mutating).
+        
+        Args:
+            other: Another PriceFrame to add.
+            require_same_interval: If True, require matching intervals.
+            
+        Returns:
+            PriceFrame: New concatenated PriceFrame.
         """
         if not isinstance(other, PriceFrame):
             raise TypeError("`other` doit être un PriceFrame")
@@ -1096,11 +1205,11 @@ class PriceFrame:
 
         for col in ("symbol", "interval", "ts"):
             if col not in t1.column_names:
-                raise KeyError(f"Colonne requise absente dans self: '{col}'")
+                raise KeyError(f"Required column missing in self: '{col}'")
             if col not in t2.column_names:
-                raise KeyError(f"Colonne requise absente dans other: '{col}'")
+                raise KeyError(f"Required column missing in other: '{col}'")
 
-        # Vérif d'interval homogène
+        # Verify homogeneous interval
         if require_same_interval:
             def one_interval(t: pa.Table) -> set[str]:
                 vals = pc.unique(t["interval"]).to_pylist()
@@ -1109,10 +1218,10 @@ class PriceFrame:
             u1, u2 = one_interval(t1), one_interval(t2)
             if len(u1) != 1 or len(u2) != 1 or u1 != u2:
                 raise ValueError(
-                    f"Interval(s) incompatibles: self={sorted(u1)} vs other={sorted(u2)}"
+                    f"Incompatible interval(s): self={sorted(u1)} vs other={sorted(u2)}"
                 )
 
-        # Unification des schémas
+        # Schema unification
         uni_schema = pa.unify_schemas([t1.schema, t2.schema])
 
         def _align(table: pa.Table, schema: pa.Schema) -> pa.Table:
@@ -1173,11 +1282,23 @@ class PriceFrame:
         quote_ccy: Union[str, None] = None,
     ) -> 'PriceFrame':
         """
-        Ingestion d'une close-matrix (index=dates, colonnes=symbols, valeurs=close)
-        vers le format canonique long PriceFrame.
+        Ingest a close-matrix (index=dates, columns=symbols, values=close) to canonical long PriceFrame format.
+        
+        Args:
+            close_df: DataFrame with dates as index, symbols as columns, close prices as values.
+            interval: Time interval string. If None, will be inferred.
+            tz: Timezone for dates (default: "UTC").
+            round_unit: Unit for rounding timestamps (default: "ms").
+            drop_all_na_rows: Drop rows where all values are NaN.
+            drop_all_na_cols: Drop columns where all values are NaN.
+            source: Optional source identifier.
+            quote_ccy: Optional quote currency.
+            
+        Returns:
+            PriceFrame: New PriceFrame instance.
         """
         if not isinstance(close_df, pd.DataFrame):
-            raise TypeError("from_close_matrix attend un pandas.DataFrame.")
+            raise TypeError("from_close_matrix expects a pandas.DataFrame.")
 
         if close_df.empty:
             empty = pd.DataFrame(columns=["symbol", "interval", "ts", "close"])
@@ -1208,18 +1329,18 @@ class PriceFrame:
             empty = pd.DataFrame(columns=["symbol", "interval", "ts", "close"])
             return cls.from_pandas(empty)
 
-        # 2) Déterminer offset / interval
+        # 2) Determine offset / interval
         if interval is None:
             _, interval_str = infer_interval_from_index(mat.index)
         else:
             _, interval_str = interval_to_offset(interval)
 
-        # --- 4) Passage en long ---
+        # --- 4) Convert to long format ---
         # stack (ts, symbol) -> close
         try:
             stacked = mat.stack(future_stack=True)  # pandas >= 2.1
         except TypeError:
-            # pandas < 2.1 ne connaît pas future_stack
+            # pandas < 2.1 doesn't know future_stack
             stacked = mat.stack(dropna=True)
 
         long = (
