@@ -316,10 +316,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Roadmap
 
 - [ ] Additional data sources (Yahoo Finance, Binance, S3 storage, etc.)
@@ -327,16 +323,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Backtesting framework integration (NautilusTrader)
 - [ ] Performance optimizations
 - [ ] Quick visualisation with mlpfinance
-
-## Requirements
-
-- Python 3.9+
-- pandas >= 2.3.3
-- polars >= 1.35.2
-- pyarrow >= 21.0.0
-
-Optional:
-- xbbg >= 0.7.7 (Bloomberg)
-- blpapi >= 3.25.10.1 (Bloomberg)
-- ccxt >= 4.5.20 (Crypto)
-- duckdb >= 1.4.2 (Crypto storage)
