@@ -1,6 +1,6 @@
 [project]
 name = "priceframe"
-version = "0.1.4"
+version = "0.2.0"
 description = "Provides a canonical, high-performance way to store, manipulate, and analyze financial price data (OHLCV, OHLC or Close only). It combines the speed of PyArrow and Polars with the familiarity of pandas, offering a flexible feature system for technical indicators and quantitative analysis."
 readme = "README.md"
 authors = [
