@@ -2,6 +2,7 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 ![Version](https://img.shields.io/github/v/tag/Caymaar/priceframe?label=version)
+[![Downloads](https://pepy.tech/badge/priceframe)](https://pepy.tech/project/priceframe)
 
 A modern, efficient price data management library for Python, built on top of PyArrow, Polars, and pandas.
 
